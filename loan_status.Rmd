@@ -1,9 +1,4 @@
----
-title: "Stat 652 final project"
-author: "Prasanna Pawar, cn6835"
-date: "`r Sys.Date()`"
-output: pdf_document
----
+
 
 ```{r setup, include=FALSE}
 options(knitr.kable.NA = '', knitr.kable.force.latex = FALSE)
