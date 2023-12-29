@@ -1,0 +1,208 @@
+---
+title: "Stat 652 final project"
+author: "Prasanna Pawar, cn6835"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+options(knitr.kable.NA = '', knitr.kable.force.latex = FALSE)
+
+# Load required packages
+library(readr)
+library(dplyr)
+library(pacman)
+library(pROC)
+library(tidyverse)
+library(tidymodels)
+library(naniar)
+library(DataExplorer)
+library(janitor)
+library(discrim)
+```
+
+
+## ABSTRACT
+
+The aim of this study is to accurately classify the loan status of approved loans by utilizing a range of machine learning algorithms on the LendingClub dataset spanning from 2012 to 2014. This challenge was initiated by Siraj Raval, a well-known AI educator on YouTube. The primary objective is to match or surpass the accuracies achieved in the LoanDefault-Prediction competition on Github, which primarily involves building classifiers rather than quantitative prediction models. Adequate proficiency in statistical analysis, data visualization, and machine learning techniques is necessary for this project. Ultimately, effectively applying machine learning algorithms to this dataset could potentially have significant implications for the lending industry and loan approval accuracy.
+
+
+## INTRODUCTION
+
+The aim of this project is to develop a machine learning model to classify the Loan Status of authorized LendingClub loans from 2012 to 2014. The data will be obtained from Kaggle website and combined into a single dataframe after thorough data collection, analysis and preparation, model training, evaluation and optimization processes.
+
+## **Step 1**  Data collection
+
+The study will use data obtained from the Kaggle LendingClub website, which includes information spanning from 2007 to 2018. To supplement this data, the approved loans from 2012 to 2014 will be downloaded in CSV format and combined with the core data file to create a unified dataframe.
+
+
+```{r,warning=FALSE,message=FALSE}
+lending_club_data_2012_2014 <- read_csv("/Users/prase/Downloads/Project/data_small/lending_club_data_2012_2014_small.csv")
+```
+
+There are total of 10000 observations of 152 variables. 
+
+## **Step 2**  exploring and preparing the data for modelling
+
+After the data has been collected and combined, we will conduct an exploratory data analysis to gain a better understanding of the data. This will involve identifying any missing data, examining the distribution of variables, and detecting any outliers. To prepare the data for model training, we will employ various data cleaning and preprocessing techniques such as imputation, normalization, and feature engineering. It's worth noting that in the loan status variable, Fully Paid is designated as level 1, while Charged Off is designated as level 0.
+
+```{r}
+loan_status_2012_14 <- lending_club_data_2012_2014 %>% 
+  select(loan_amnt, funded_amnt_inv,total_pymnt, installment,
+         annual_inc, dti, total_rec_int, last_pymnt_amnt,
+         tot_cur_bal, avg_cur_bal, total_bc_limit, term,
+         home_ownership, loan_status, year, collection_recovery_fee,
+         total_acc, revol_util, revol_bal, open_acc)
+  
+loan_status_2012_14 <- loan_status_2012_14 [loan_status_2012_14$loan_status %in% c("Fully Paid", "Charged Off"), ]
+
+loan_status_2012_14<- loan_status_2012_14 %>% 
+  mutate(loan_status = ifelse(loan_status == "Fully Paid",1,0),
+         loan_status = as_factor(loan_status),
+         term = as_factor(term),
+         home_ownership = as_factor(home_ownership),
+         year=as_factor(year)) %>% 
+  drop_na(loan_status)
+
+loan_status_2012_14_split <- initial_split(loan_status_2012_14, prop = 0.75)
+
+vis_miss(loan_status_2012_14)
+
+loan_status_2012_14_recipe <- training(loan_status_2012_14_split) %>%
+  recipe(loan_status ~ .) %>%
+  step_nzv(all_predictors()) %>%
+  step_rm(term, home_ownership,year) %>% 
+  step_impute_median(all_numeric()) %>%
+  prep()
+
+loan_status_2012_14_testing <- loan_status_2012_14_recipe %>%
+  bake(testing(loan_status_2012_14_split)) 
+
+loan_status_2012_14_training <- juice(loan_status_2012_14_recipe)
+
+```
+
+## **Step 3**  training a model on the data
+
+We will employ Logistic Regression to train our machine learning model. This method models the relationship between a set of input variables and a binary outcome. The logistic function is used to calculate the likelihood of the outcome given the input variables. The algorithm then assigns the outcome to one of two possible values based on a threshold value.
+
+### Logistic Regression
+
+```{r}
+glm_model <- logistic_reg(penalty = 0.001, mixture = 0.5) %>% 
+  set_engine("glmnet") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = loan_status_2012_14_training)
+
+```
+
+
+### Naive Bayes
+
+```{r}
+#install.packages("naivebayes")
+naive_bayes_model <- naive_Bayes(smoothness = 1) %>%
+set_engine("naivebayes") %>%
+set_mode("classification") %>%
+fit(loan_status ~ ., data = loan_status_2012_14_training)
+```
+
+### KNN Model
+
+```{r}
+knn_model <- nearest_neighbor(neighbors = 5) %>%
+set_engine("kknn") %>%
+set_mode("classification") %>%
+fit(loan_status ~ ., data = loan_status_2012_14_training)
+```
+
+
+### Random Forest Model
+
+```{r}
+random_forest_model <- rand_forest(mtry = 5, trees = 500) %>%
+set_engine("ranger") %>%
+set_mode("classification") %>%
+fit(loan_status ~ ., data = loan_status_2012_14_training)
+```
+
+## **Step 4**  evaluating model performance
+
+Our results highlight the effectiveness and interpretability of logistic regression as a classification technique. We achieved an accuracy rate of 98%, a Kap score of 0.94, and the corresponding confusion matrix and ROC curve are presented below. These results demonstrate how logistic regression can be used to predict binary outcomes.
+
+```{r}
+glm_model %>%
+predict(loan_status_2012_14_testing) %>%
+bind_cols(loan_status_2012_14_testing) %>%
+metrics(truth = loan_status, estimate = .pred_class)
+
+glm_model %>%
+predict(loan_status_2012_14_testing) %>%
+bind_cols(loan_status_2012_14_testing) %>%
+conf_mat(truth = loan_status, estimate = .pred_class)
+
+glm_model %>%
+predict(loan_status_2012_14_testing, type = "prob") %>%
+bind_cols(loan_status_2012_14_testing) %>%
+roc_curve(loan_status, .pred_0) %>%
+autoplot()
+```
+
+## **Step 5**  improving model performance
+
+Techniques like feature selection and hyperparameter tweaking will be used to enhance the model's performance. At each stage, the model's performance will be assessed to see if it has improved.
+
+### Three Different Models and their Accuracies. 
+
+`Logistic Regression Model: 98% Accuracy.` 
+
+`KNN Model: 91% Accuracy. `
+
+`Naive Bayes Model: 83% Accuracy`
+
+```{r, warning=FALSE}
+#Logistic Regression Model Accuracy
+glm_model <-logistic_reg(penalty = 0.001, mixture = 0.5) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = loan_status_2012_14_training)
+glm_model %>%
+  predict(loan_status_2012_14_testing) %>%
+  bind_cols(loan_status_2012_14_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+
+```
+
+
+```{r,warning=FALSE}
+
+#knn Model Accuracy 
+knn_model <- nearest_neighbor(neighbors = 3) %>% 
+  set_engine("kknn") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = loan_status_2012_14_training)
+knn_model %>%
+  predict(loan_status_2012_14_testing) %>%
+  bind_cols(loan_status_2012_14_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+
+```
+
+```{r, warning=FALSE}
+
+#Naive Bayes Model Accuracy
+naive_bayes_model <- naive_Bayes(Laplace = 1) %>% 
+  set_engine("klaR") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = loan_status_2012_14_training)
+naive_bayes_model %>%
+  predict(loan_status_2012_14_testing) %>%
+  bind_cols(loan_status_2012_14_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+
+```
+
+
+## CONCLUSION:
+
+In conclusion, we developed and evaluated a logistic regression model to predict loan status based on input characteristics. Our results indicate that logistic regression is a valuable and intuitive approach for solving classification problems in various domains. To further improve the model's performance, future studies may explore alternative classification methods and include additional features.
